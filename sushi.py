@@ -8,9 +8,8 @@ from openpyxl.styles import PatternFill, Font
 
 st.set_page_config(page_title="수시지불 대조 프로그램", page_icon="📊", layout="wide")
 
-st.title("📊 수시지불 대조 및 이체파일 생성기 (Ver.8.3)")
+st.title("📊 수시지불 대조 및 이체파일 생성기 (Ver.8.10)")
 
-# ⭐️ 불필요한 설명 텍스트 삭제 및 깔끔한 라디오 버튼만 남김
 version_choice = st.radio(
     "법인 선택",
     ("DH", "YK"),
@@ -50,7 +49,7 @@ if acc_file:
                 else:
                     acc_df['은행코드'] = ""
                     
-                acc_df['원래계좌번호'] = acc_df['계좌번호'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '').str.strip()
+                acc_df['원래계좌번호'] = acc_df['계좌번호'].astype(str).replace(['nan', 'None', 'none', 'NaN', '.'], '').str.strip()
                 acc_df['비교용_계좌'] = acc_df['원래계좌번호'].str.replace(r'\D', '', regex=True)
                 acc_df['회계팀금액'] = pd.to_numeric(acc_df['금액'], errors='coerce').fillna(0).astype(int)
 
@@ -64,17 +63,41 @@ if acc_file:
                     sap_raw = pd.read_excel(sap_file, header=None, dtype=str)
                     header_row_index = 0
                     for i in range(min(10, len(sap_raw))):
-                        if '계좌번호' in sap_raw.iloc[i].astype(str).tolist():
+                        row_str = " ".join(sap_raw.iloc[i].astype(str).tolist())
+                        if '계좌' in row_str or '금액' in row_str:
                             header_row_index = i
                             break
                             
                     sap_df = pd.read_excel(sap_file, header=header_row_index, dtype=str)
                     sap_df = sap_df.dropna(how='all') 
                     
-                    sap_df['비교용_계좌'] = sap_df['계좌번호'].astype(str).str.replace(r'\D', '', regex=True)
+                    # ⭐️ 열 이름 매핑 순서 변경: 표시내용을 먼저 분류하여 '계좌' 중복 인식 에러 차단
+                    rename_dict = {}
+                    for col in sap_df.columns:
+                        col_str = str(col).strip().replace(" ", "")
+                        if '입금통장표시' in col_str or '입금계좌표시' in col_str:
+                            rename_dict[col] = '입금계좌표시내용'
+                        elif '계좌' in col_str:
+                            rename_dict[col] = '계좌번호'
+                        elif '은행' in col_str:
+                            rename_dict[col] = '은행명'
+                        elif '금액' in col_str:
+                            rename_dict[col] = '금액'
+                        elif '예금주' in col_str:
+                            rename_dict[col] = '예금주'
+                        elif 'CMS' in col_str.upper():
+                            rename_dict[col] = 'CMS코드'
+                    sap_df = sap_df.rename(columns=rename_dict)
+
+                    for req_col in ['계좌번호', '은행명', '금액', '예금주', '입금계좌표시내용', 'CMS코드']:
+                        if req_col not in sap_df.columns:
+                            sap_df[req_col] = ''
+
+                    sap_df['계좌번호'] = sap_df['계좌번호'].astype(str).replace(['nan', 'None', 'none', 'NaN', '.'], '').str.strip()
+                    sap_df['비교용_계좌'] = sap_df['계좌번호'].str.replace(r'\D', '', regex=True)
                     sap_df['SAP금액'] = pd.to_numeric(sap_df['금액'], errors='coerce').fillna(0).astype(int)
                     sap_df['SAP예금주'] = sap_df['예금주'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '').str.strip()
-                    if '입금계좌표시내용' not in sap_df.columns: sap_df['입금계좌표시내용'] = ''
+                    sap_df['입금계좌표시내용'] = sap_df['입금계좌표시내용'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '').str.strip()
                     
                     sap_df['Match_Key'] = sap_df['SAP예금주'].apply(clean_name)
                     sap_df['Match_Key'] = np.where(sap_df['Match_Key'] == '', 'AMT_' + sap_df['SAP금액'].astype(str), sap_df['Match_Key'])
@@ -95,9 +118,15 @@ if acc_file:
                         acc = row['비교용_계좌']
                         amt_key = 'AMT_' + str(row['회계팀금액'])
                         
-                        if dep in sap_keys: return dep      
-                        if ven in sap_keys: return ven      
-                        if acc in sap_keys: return acc      
+                        if dep and dep in sap_keys: return dep      
+                        if ven and ven in sap_keys: return ven      
+                        if acc and acc in sap_keys: return acc      
+
+                        for sk in sap_keys:
+                            if sk.startswith('AMT_'): continue
+                            if len(dep) >= 2 and (dep in sk or sk in dep): return sk
+                            if len(ven) >= 2 and (ven in sk or sk in ven): return sk
+
                         if amt_key in sap_keys: return amt_key 
                         if '가상계좌' in dep or not dep: return ven
                         return dep
@@ -107,7 +136,8 @@ if acc_file:
                     acc_totals = acc_df.groupby('Match_Key')['회계팀금액'].sum().reset_index(name='회계팀_총금액')
                     acc_df = pd.merge(acc_df, acc_totals, on='Match_Key', how='left')
 
-                    merged = pd.merge(acc_df, sap_grouped, on='Match_Key', how='outer')
+                    # Left Join: 회계팀 기준 100%
+                    merged = pd.merge(acc_df, sap_grouped, on='Match_Key', how='left')
 
                 else:
                     merged = acc_df.copy()
@@ -123,8 +153,6 @@ if acc_file:
                 # 3. 데이터 정리 및 공통 포맷팅
                 # ==========================================
                 merged['최종_은행명'] = merged['은행명'].fillna(merged['SAP_은행명']).astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
-                merged['최종_은행코드'] = merged['은행코드'].fillna(merged['SAP_은행명']).astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
-                
                 merged['최종_계좌번호'] = merged['원래계좌번호'].fillna(merged['SAP_계좌번호']).astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 merged['최종_금액'] = merged['회계팀금액'].fillna(merged['SAP_총금액']).astype(int)
                 
@@ -143,16 +171,16 @@ if acc_file:
                 merged['메모'] = ""
                 merged['휴대폰번호'] = ""
 
-                merged['[대조]회계팀_금액'] = merged['회계팀금액'].fillna(0).astype(int)
-                merged['[대조]회계팀_예금주'] = merged['예금주'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
-                merged['[대조]회계팀_업체명'] = merged['업체명'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
-                merged['[대조]적요'] = merged['적요'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
-                merged['[대조]담당자'] = merged['담당자'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
+                merged['회계팀_예금주'] = merged['예금주'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
+                merged['SAP_예금주'] = merged['SAP_예금주'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
+                merged['회계팀_업체명'] = merged['업체명'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
+                merged['적요'] = merged['적요'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
+                merged['담당자'] = merged['담당자'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 
                 if '계좌타입' in merged.columns:
-                    merged['[대조]계좌타입'] = merged['계좌타입'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '').str.strip()
+                    merged['계좌타입'] = merged['계좌타입'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '').str.strip()
                 else:
-                    merged['[대조]계좌타입'] = ""
+                    merged['계좌타입'] = ""
 
                 # ==========================================
                 # 4. 상태값(검증) 로직
@@ -196,21 +224,20 @@ if acc_file:
                 if is_yk:
                     final_report = merged[[
                         '최종_은행명', '최종_계좌번호', '최종_금액', '최종_예금주', 'YK_입금통장표시', '출금통장표시', '메모', '최종_CMS', '휴대폰번호',
-                        '[대조]회계팀_금액', '[대조]회계팀_예금주', '[대조]회계팀_업체명', '[대조]적요', '[대조]담당자', '[대조]계좌타입', '검증결과'
+                        'SAP_예금주', '회계팀_예금주', '회계팀_업체명', '적요', '담당자', '계좌타입', '검증결과'
                     ]]
                     final_report.columns = [
                         '입금은행', '입금계좌번호', '이체금액', '예상예금주', '입금통장표시', '출금통장표시', '메모', 'CMS코드', '받는분휴대폰번호',
-                        '[대조]회계팀_금액', '[대조]회계팀_예금주', '[대조]회계팀_업체명', '[대조]적요', '[대조]담당자', '[대조]계좌타입', '[대조]검증상태'
+                        'SAP_예금주', '수시지불리스트_예금주', '수시지불리스트_업체명', '적요', '담당자', '계좌타입', '검증상태'
                     ]
                 else:
                     final_report = merged[[
                         '최종_은행명', '최종_계좌번호', '최종_금액', '최종_표시내용', '최종_예금주', '최종_CMS',
-                        '[대조]회계팀_금액', '[대조]회계팀_예금주', '[대조]회계팀_업체명', '[대조]적요', '[대조]담당자', '[대조]계좌타입', '검증결과'
+                        'SAP_예금주', '회계팀_예금주', '회계팀_업체명', '적요', '담당자', '계좌타입', '검증결과'
                     ]]
                     final_report.columns = [
                         '은행명', '계좌번호', '금액', '입금계좌표시내용', '예금주', 'CMS코드',
-                        '[대조]회계팀_금액', '[대조]회계팀_예금주', '[대조]회계팀_업체명',
-                        '[대조]적요', '[대조]담당자', '[대조]계좌타입', '[대조]검증상태'
+                        'SAP_예금주', '수시지불리스트_예금주', '수시지불리스트_업체명', '적요', '담당자', '계좌타입', '검증상태'
                     ]
 
                 wb = Workbook()
@@ -238,7 +265,7 @@ if acc_file:
                     is_w_type = str(row_data[type_idx]).strip().lower() == 'w'
                     
                     for col_num, value in enumerate(row_data, 1):
-                        amt_cols = [3, 10] if is_yk else [3, 7]
+                        amt_cols = [3] 
                         if col_num in amt_cols:
                             cell = ws.cell(row=row_num, column=col_num, value=int(value) if pd.notna(value) and value != '' else 0)
                             cell.number_format = '#,##0'
@@ -286,7 +313,7 @@ if acc_file:
                 st.download_button(
                     label=f"📥 {corp_name} 최종본 이체파일 다운로드",
                     data=final_output.getvalue(),
-                    file_name=f"은행업로드_수시지불_최종본_ver8.3_{corp_name}.xlsx",
+                    file_name=f"은행업로드_수시지불_최종본_ver8.10_{corp_name}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
