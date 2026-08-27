@@ -1,0 +1,20 @@
+name: Keep Streamlit App Alive
+
+on:
+  schedule:
+    # 깃허브 서버는 영국 시간(UTC) 기준이라 한국(KST)보다 9시간 느립니다.
+    # 한국 오전 6시 = UTC 전날 밤 9시 (21:00)
+    - cron: "0 21 * * *"
+    # 한국 낮 12시 = UTC 새벽 3시 (03:00)
+    - cron: "0 3 * * *"
+  
+  # 수동으로도 알람을 테스트해 볼 수 있는 버튼을 활성화합니다.
+  workflow_dispatch: 
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        # 아래 주소를 본인의 실제 스트림릿 웹사이트 URL로 변경하세요!
+        run: curl -s https://sushipayment.streamlit.app/ > /dev/null
