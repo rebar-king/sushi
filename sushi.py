@@ -8,7 +8,7 @@ from openpyxl.styles import PatternFill, Font
 
 st.set_page_config(page_title="수시지불 대조 프로그램", page_icon="📊", layout="wide")
 
-st.title("📊 수시지불 대조 및 이체파일 생성기 (Ver.8.10)")
+st.title("📊 수시지불 대조 및 이체파일 생성기 (Ver.8.11)")
 
 version_choice = st.radio(
     "법인 선택",
@@ -63,7 +63,8 @@ if acc_file:
                     sap_raw = pd.read_excel(sap_file, header=None, dtype=str)
                     header_row_index = 0
                     for i in range(min(10, len(sap_raw))):
-                        row_str = " ".join(sap_raw.iloc[i].astype(str).tolist())
+                        # ⭐️ 버그 패치: 어떤 서버 환경이든 무조건 문자로 바꾸도록 100% 안전하게(str) 수정
+                        row_str = " ".join([str(x) for x in sap_raw.iloc[i].tolist()])
                         if '계좌' in row_str or '금액' in row_str:
                             header_row_index = i
                             break
@@ -71,7 +72,6 @@ if acc_file:
                     sap_df = pd.read_excel(sap_file, header=header_row_index, dtype=str)
                     sap_df = sap_df.dropna(how='all') 
                     
-                    # ⭐️ 열 이름 매핑 순서 변경: 표시내용을 먼저 분류하여 '계좌' 중복 인식 에러 차단
                     rename_dict = {}
                     for col in sap_df.columns:
                         col_str = str(col).strip().replace(" ", "")
@@ -136,7 +136,6 @@ if acc_file:
                     acc_totals = acc_df.groupby('Match_Key')['회계팀금액'].sum().reset_index(name='회계팀_총금액')
                     acc_df = pd.merge(acc_df, acc_totals, on='Match_Key', how='left')
 
-                    # Left Join: 회계팀 기준 100%
                     merged = pd.merge(acc_df, sap_grouped, on='Match_Key', how='left')
 
                 else:
@@ -313,7 +312,7 @@ if acc_file:
                 st.download_button(
                     label=f"📥 {corp_name} 최종본 이체파일 다운로드",
                     data=final_output.getvalue(),
-                    file_name=f"은행업로드_수시지불_최종본_ver8.10_{corp_name}.xlsx",
+                    file_name=f"은행업로드_수시지불_최종본_ver8.11_{corp_name}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
