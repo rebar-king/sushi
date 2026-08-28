@@ -8,7 +8,7 @@ from openpyxl.styles import PatternFill, Font
 
 st.set_page_config(page_title="수시지불 대조 프로그램", page_icon="📊", layout="wide")
 
-st.title("📊 수시지불 대조 및 이체파일 생성기 (Ver.8.11)")
+st.title("📊 수시지불 대조 및 이체파일 생성기 (Ver.8.12)")
 
 version_choice = st.radio(
     "법인 선택",
@@ -63,7 +63,6 @@ if acc_file:
                     sap_raw = pd.read_excel(sap_file, header=None, dtype=str)
                     header_row_index = 0
                     for i in range(min(10, len(sap_raw))):
-                        # ⭐️ 버그 패치: 어떤 서버 환경이든 무조건 문자로 바꾸도록 100% 안전하게(str) 수정
                         row_str = " ".join([str(x) for x in sap_raw.iloc[i].tolist()])
                         if '계좌' in row_str or '금액' in row_str:
                             header_row_index = i
@@ -151,10 +150,12 @@ if acc_file:
                 # ==========================================
                 # 3. 데이터 정리 및 공통 포맷팅
                 # ==========================================
-                merged['최종_은행명'] = merged['은행명'].fillna(merged['SAP_은행명']).astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
-                merged['최종_계좌번호'] = merged['원래계좌번호'].fillna(merged['SAP_계좌번호']).astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
-                merged['최종_금액'] = merged['회계팀금액'].fillna(merged['SAP_총금액']).astype(int)
+                # ⭐️ 핵심 패치: 빈칸이 있어도 SAP 데이터를 끌어오지 않고 수시지불리스트 데이터를 100% 고수함
+                merged['최종_은행명'] = merged['은행명'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
+                merged['최종_계좌번호'] = merged['원래계좌번호'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
+                merged['최종_금액'] = merged['회계팀금액'].fillna(0).astype(int)
                 
+                # 단, 은행에 전송될 '최종 예금주'는 SAP에 등록된 이름을 최우선으로 적용함
                 merged['최종_예금주'] = np.where(
                     merged['SAP_예금주'].isna() | (merged['SAP_예금주'] == ''),
                     merged['예금주'],
@@ -312,7 +313,7 @@ if acc_file:
                 st.download_button(
                     label=f"📥 {corp_name} 최종본 이체파일 다운로드",
                     data=final_output.getvalue(),
-                    file_name=f"은행업로드_수시지불_최종본_ver8.11_{corp_name}.xlsx",
+                    file_name=f"은행업로드_수시지불_최종본_ver8.12_{corp_name}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
