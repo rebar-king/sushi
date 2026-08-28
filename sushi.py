@@ -8,7 +8,8 @@ from openpyxl.styles import PatternFill, Font
 
 st.set_page_config(page_title="수시지불 대조 프로그램", page_icon="📊", layout="wide")
 
-st.title("📊 수시지불 대조 및 이체파일 생성기 (Ver.8.12)")
+st.title("📊 수시지불 대조 및 이체파일 생성기 (Ver.8.13)")
+st.write("모든 메인 데이터는 100% 수시지불리스트 기준 (SAP 예금주는 우측 참고용으로만 표시)")
 
 version_choice = st.radio(
     "법인 선택",
@@ -150,18 +151,11 @@ if acc_file:
                 # ==========================================
                 # 3. 데이터 정리 및 공통 포맷팅
                 # ==========================================
-                # ⭐️ 핵심 패치: 빈칸이 있어도 SAP 데이터를 끌어오지 않고 수시지불리스트 데이터를 100% 고수함
+                # ⭐️ 최종 예금주를 포함한 모든 데이터를 수시지불리스트 100% 기준으로 고정
                 merged['최종_은행명'] = merged['은행명'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 merged['최종_계좌번호'] = merged['원래계좌번호'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 merged['최종_금액'] = merged['회계팀금액'].fillna(0).astype(int)
-                
-                # 단, 은행에 전송될 '최종 예금주'는 SAP에 등록된 이름을 최우선으로 적용함
-                merged['최종_예금주'] = np.where(
-                    merged['SAP_예금주'].isna() | (merged['SAP_예금주'] == ''),
-                    merged['예금주'],
-                    merged['SAP_예금주']
-                )
-                merged['최종_예금주'] = merged['최종_예금주'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
+                merged['최종_예금주'] = merged['예금주'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 
                 merged['최종_표시내용'] = merged['SAP_표시내용'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 merged['최종_CMS'] = "" 
@@ -171,7 +165,6 @@ if acc_file:
                 merged['메모'] = ""
                 merged['휴대폰번호'] = ""
 
-                merged['회계팀_예금주'] = merged['예금주'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 merged['SAP_예금주'] = merged['SAP_예금주'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 merged['회계팀_업체명'] = merged['업체명'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
                 merged['적요'] = merged['적요'].astype(str).replace(['nan', 'None', 'none', 'NaN'], '')
@@ -221,23 +214,24 @@ if acc_file:
                 # ==========================================
                 # 5. 버전에 따른 출력 열(Columns) 선택
                 # ==========================================
+                # ⭐️ 수시지불리스트_예금주 열 제거
                 if is_yk:
                     final_report = merged[[
                         '최종_은행명', '최종_계좌번호', '최종_금액', '최종_예금주', 'YK_입금통장표시', '출금통장표시', '메모', '최종_CMS', '휴대폰번호',
-                        'SAP_예금주', '회계팀_예금주', '회계팀_업체명', '적요', '담당자', '계좌타입', '검증결과'
+                        'SAP_예금주', '회계팀_업체명', '적요', '담당자', '계좌타입', '검증결과'
                     ]]
                     final_report.columns = [
                         '입금은행', '입금계좌번호', '이체금액', '예상예금주', '입금통장표시', '출금통장표시', '메모', 'CMS코드', '받는분휴대폰번호',
-                        'SAP_예금주', '수시지불리스트_예금주', '수시지불리스트_업체명', '적요', '담당자', '계좌타입', '검증상태'
+                        'SAP_예금주', '수시지불리스트_업체명', '적요', '담당자', '계좌타입', '검증상태'
                     ]
                 else:
                     final_report = merged[[
                         '최종_은행명', '최종_계좌번호', '최종_금액', '최종_표시내용', '최종_예금주', '최종_CMS',
-                        'SAP_예금주', '회계팀_예금주', '회계팀_업체명', '적요', '담당자', '계좌타입', '검증결과'
+                        'SAP_예금주', '회계팀_업체명', '적요', '담당자', '계좌타입', '검증결과'
                     ]]
                     final_report.columns = [
                         '은행명', '계좌번호', '금액', '입금계좌표시내용', '예금주', 'CMS코드',
-                        'SAP_예금주', '수시지불리스트_예금주', '수시지불리스트_업체명', '적요', '담당자', '계좌타입', '검증상태'
+                        'SAP_예금주', '수시지불리스트_업체명', '적요', '담당자', '계좌타입', '검증상태'
                     ]
 
                 wb = Workbook()
@@ -261,7 +255,7 @@ if acc_file:
                     cell.fill = PatternFill(start_color='E0E0E0', end_color='E0E0E0', fill_type='solid')
 
                 for row_num, row_data in enumerate(final_report.values, data_start_row):
-                    type_idx = 14 if is_yk else 11
+                    type_idx = 13 if is_yk else 10 # ⭐️ 열 축소로 인한 인덱스 조정
                     is_w_type = str(row_data[type_idx]).strip().lower() == 'w'
                     
                     for col_num, value in enumerate(row_data, 1):
@@ -272,7 +266,7 @@ if acc_file:
                         else:
                             cell = ws.cell(row=row_num, column=col_num, value=value)
                             
-                        status_col = 16 if is_yk else 13
+                        status_col = 15 if is_yk else 12 # ⭐️ 열 축소로 인한 인덱스 조정
                         if col_num == status_col: 
                             if value == '정상':
                                 cell.fill = green_fill
@@ -313,7 +307,7 @@ if acc_file:
                 st.download_button(
                     label=f"📥 {corp_name} 최종본 이체파일 다운로드",
                     data=final_output.getvalue(),
-                    file_name=f"은행업로드_수시지불_최종본_ver8.12_{corp_name}.xlsx",
+                    file_name=f"은행업로드_수시지불_최종본_ver8.13_{corp_name}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
